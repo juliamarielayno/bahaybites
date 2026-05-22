@@ -1,19 +1,19 @@
-# 🎈 Blank app template
+# 🏠 Bahay Bites
 
-A simple Streamlit app template for you to modify!
+Bahay means "home" in Tagalog. Bahay Bites is a Filipino recipe calculator app that helps you scale ingredients and estimate costs for homemade Filipino food.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+## Recipes
+- 🍞 Pandesal
+- 🍪 Ube Crinkle Cookies
 
-### How to run it on your own machine
+## Features
+- Scale any recipe up or down based on how many servings you need
+- Estimates ingredient costs using Walmart prices
+- Clean and simple app anyone can use
 
-1. Install the requirements
+## Built With
+- Python
+- Streamlit
 
-   ```
-   $ pip install -r requirements.txt
-   ```
-
-2. Run the app
-
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+## Live App
+[Click here to open Bahay Bites](<your streamlit link here>)
