@@ -8,9 +8,9 @@ This app is the tool I built to help me run it. I am a pre-order only business, 
 
 ---
 
-## Websites
+## Website
 
-**Bakery Website** https://bahaybites.lovable.app
+https://bahaybites.lovable.app
 
 ---
 
