@@ -95,18 +95,85 @@ ube_base = 18
 
 pandesal_scale    = pandesal_orders / pandesal_base if pandesal_orders > 0 else 0
 ensaymada_scale   = ensaymada_orders / ensaymada_base if ensaymada_orders > 0 else 0
-ube_scale         = ube_orders / ube_base if ube_orders > 0 else 0
+ube_crinkle_scale         = ube_orders / ube_base if ube_orders > 0 else 0
 
-total_cost = pandesal_cost(pandesal_scale) + ensaymada_cost(ensaymada_scale) + ube_cookie_cost(ube_scale)
+total_cost = pandesal_cost(pandesal_scale) + ensaymada_cost(ensaymada_scale) + ube_cookie_cost(ube_crinkle_scale)
 
 st.markdown("## Expected Cost to Make")
 col1, col2, col3, col4 = st.columns(4)
 col1.markdown(f"**Pandesal:** ${pandesal_cost(pandesal_scale):.2f}")
 col2.markdown(f"**Ensaymada:** ${ensaymada_cost(ensaymada_scale):.2f}")
-col3.markdown(f"**Ube Crinkles:** ${ube_cookie_cost(ube_scale):.2f}")
+col3.markdown(f"**Ube Crinkles:** ${ube_cookie_cost(ube_crinkle_scale):.2f}")
 col4.markdown(f"**Total Cost Overral:** ${total_cost:.2f}")
 
 st.markdown("---")
+
+# ============================================================
+# Shopping List
+# ============================================================
+
+st.markdown("## Grocery List")
+
+if pandesal_orders > 0 or ensaymada_orders > 0 or ube_orders > 0:
+    
+    shopping = {
+        'cups bread flour':         0,
+        'cups sugar':               0,
+        'tsp yeast':                0,
+        'cups instant mash':        0,
+        'tbsp butter':              0,
+        'tsp salt':                 0,
+        'eggs':                     0,
+        'cups water':               0,
+        'cups oil':                 0,
+        'cups breadcrumbs':         0,
+        'cups milk':                0,
+        'tbsp cornstarch':          0,
+        'cups ube halaya jam':      0,
+        'tsp ube extract':          0,
+        'tsp vanilla extract':      0,
+        'cups confectioners sugar': 0,
+        'tsp baking powder':        0, }
+
+    if pandesal_orders > 0:
+        shopping['cups bread flour']  += 8   * pandesal_scale
+        shopping['cups sugar']        += 0.5 * pandesal_scale
+        shopping['tsp yeast']         += 4   * pandesal_scale
+        shopping['cups instant mash'] += 1   * pandesal_scale
+        shopping['tsp salt']          += 2   * pandesal_scale
+        shopping['cups water']        += 3   * pandesal_scale
+        shopping['cups oil']          += 0.5 * pandesal_scale
+        shopping['cups breadcrumbs']  += 1   * pandesal_scale
+
+    if ensaymada_orders > 0:
+        shopping['cups bread flour']  += 4   * ensaymada_scale
+        shopping['cups sugar']        += 1   * ensaymada_scale
+        shopping['tsp yeast']         += 6   * ensaymada_scale
+        shopping['cups instant mash'] += 0.5 * ensaymada_scale
+        shopping['tbsp butter']       += 6   * ensaymada_scale
+        shopping['tsp salt']          += 0.5 * ensaymada_scale
+        shopping['eggs']              += 3   * ensaymada_scale
+        shopping['cups milk']         += 1   * ensaymada_scale
+        shopping['tbsp cornstarch']   += 4   * ensaymada_scale
+
+    if ube_orders > 0:
+        shopping['cups bread flour']         += 1.75 * ube_crinkle_scale
+        shopping['cups sugar']               += 1    * ube_crinkle_scale
+        shopping['tbsp butter']              += 0.5  * ube_crinkle_scale
+        shopping['tsp salt']                 += 0.25 * ube_crinkle_scale
+        shopping['eggs']                     += 1    * ube_crinkle_scale
+        shopping['cups ube halaya jam']      += 0.5  * ube_crinkle_scale
+        shopping['tsp ube extract']          += 2    * ube_crinkle_scale
+        shopping['tsp vanilla extract']      += 0.5  * ube_crinkle_scale
+        shopping['cups confectioners sugar'] += 1    * ube_crinkle_scale
+        shopping['tsp baking powder']        += 1    * ube_crinkle_scale
+
+    for ingredient, amount in shopping.items():
+        if amount > 0:
+            st.write(f"- {amount:.2f} {ingredient}")
+
+else:
+    st.info("Enter your preorders above to generate a grocery list!")
 
 # ============================================================
 # Recipe Cards
@@ -135,7 +202,7 @@ if pandesal_orders > 0:
         st.write("6. Proof in oven at 100°F for 20 minutes or until desired size.")
         st.write("7. Bake at 350°F for 15-20 minutes until golden.")
         st.success(f"Estimated Batch Cost: ${pandesal_cost(pandesal_scale):.2f}")
-        st.info(f"Price per roll: ${pandesal_cost(pandesal_scale)/pandesal_orders:.2f}")
+        st.info(f"Estimated Price per roll: ${pandesal_cost(pandesal_scale)/pandesal_orders:.2f}")
 
 if ensaymada_orders > 0:
     s = ensaymada_scale
@@ -160,10 +227,10 @@ if ensaymada_orders > 0:
         st.write("5. Set bread machine to setting 7 and run for 1.5 hours.")
         st.write("6. After 10 minutes check dough and scrape sides. Check again in 1 hour.")
         st.success(f"Estimated Batch Cost: ${ensaymada_cost(ensaymada_scale):.2f}")
-        st.info(f"Per piece: ${ensaymada_cost(ensaymada_scale)/ensaymada_orders:.2f}")
+        st.info(f"Estimated Per piece: ${ensaymada_cost(ensaymada_scale)/ensaymada_orders:.2f}")
 
 if ube_orders > 0:
-    s = ube_scale
+    s = ube_crinkle_scale
     with st.expander("Ube Crinkle Cookies", expanded=True):
         st.write(f"**Servings:** {ube_orders} cookies")
         st.markdown("**Ingredients:**")
@@ -187,10 +254,9 @@ if ube_orders > 0:
         st.write("7. Chill overnight.")
         st.write("8. Roll into 3 tbsp balls and coat generously with confectioners sugar.")
         st.write("9. Bake for 12-15 minutes.")
-        st.success(f"Estimated Batch Cost: ${ube_cookie_cost(ube_scale):.2f}")
-        st.info(f"Per cookie: ${ube_cookie_cost(ube_scale)/ube_orders:.2f}")
+        st.success(f"Estimated Batch Cost: ${ube_cookie_cost(ube_crinkle_scale):.2f}")
+        st.info(f"Estimated Per cookie: ${ube_cookie_cost(ube_crinkle_scale)/ube_orders:.2f}")
 
 if pandesal_orders == 0 and ensaymada_orders == 0 and ube_orders == 0:
     st.info("Enter your preorder quantities above to see your scaled recipes!")
-
 
