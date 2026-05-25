@@ -18,8 +18,8 @@ https://bahaybites.lovable.app
 
 - Plug in your weekly preorders and get fully scaled recipes instantly
 - Estimates ingredient costs
-- Generates a recipe card unique for each item so I know exactly what to make
-
+- Auto-generated shopping list of exactly what you need to make the exact quantity needed
+- Profit margin calculator
 ---
 
 
@@ -37,6 +37,4 @@ https://bahaybites.streamlit.app/
 
 ## Coming Soon
 
-- Auto-generated shopping list
-- Profit margin calculator
 - Weekly cost trends
