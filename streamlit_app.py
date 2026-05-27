@@ -104,7 +104,7 @@ ube_crinkle_scale = total_ube_crinkle_order / ube_base if total_ube_crinkle_orde
 total_cost = pandesal_cost(pandesal_scale) + ensaymada_cost(ensaymada_scale) + ube_crinkle_cost(ube_crinkle_scale)
 
 pandesal_unitcost = pandesal_cost(pandesal_scale)/total_pandesal_order if total_pandesal_order > 0 else 0
-ensaymada_unitcost = ensaymada_cost(ensaymada_scale)/total_ensaymada_order if total_pandesal_order > 0 else 0
+ensaymada_unitcost = ensaymada_cost(ensaymada_scale)/total_ensaymada_order if total_ensaymada_order > 0 else 0
 ube_crinkle_unitcost = ube_crinkle_cost(ube_crinkle_scale)/total_ube_crinkle_order if total_pandesal_order > 0 else 0
 
 st.markdown("## Finances")
