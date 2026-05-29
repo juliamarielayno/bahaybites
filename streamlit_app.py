@@ -10,19 +10,19 @@ st.markdown("# Bahay Bites Master Form")
 # Prices revised as of May 22, 2026
 # ============================================================
 ingredient_prices = {
-    'bread_flour':      0.074,   # per oz
-    'sugar':            0.049,   # per oz
-    'yeast':            0.0137,  # per oz
-    'instant_mash':     0.186,   # per oz
+    'bread_flour':      0.03,   # per oz
+    'sugar':            0.0375,   # per oz
+    'yeast':            0.31,  # per oz
+    'instant_mash':     0.17,   # per oz
     'oil':              0.073,   # per fl oz
     'salt':             0.032,   # per oz
     'butter':           0.279,   # per oz
     'egg':              0.137,   # per egg 
     'milk':             0.022,   # per fl oz 
-    'cornstarch':       0.026,   # per oz 
+    'cornstarch':       0.013,   # per oz 
     'ube_jam':          0.90,    # per oz
     'ube_extract':      0.845,   # per oz
-    'vanilla_extract':  3.00,    # per oz
+    'vanilla_extract':  1.31,    # per oz
     'confectioners':    0.062,   # per oz
     'baking_powder':    0.262,   # per oz
 }
@@ -34,6 +34,7 @@ ingredient_prices = {
 def pandesal_cost(scale):
     return (
         8   * 4.25  * ingredient_prices['bread_flour']  +
+        0.5 * 8.0   * ingredient_prices['bread_flour']  +
         0.5 * 7.05  * ingredient_prices['sugar']        +
         4   * 0.35  * ingredient_prices['yeast']        +
         1   * 3.5   * ingredient_prices['instant_mash'] +
@@ -89,7 +90,7 @@ with col6:
 # ============================================================
 # Total Cost Calculation
 # ============================================================
-pandesal_base = 35
+pandesal_base = 48
 ensaymada_base = 30
 ube_base = 18
 
@@ -106,7 +107,6 @@ total_cost = pandesal_cost(pandesal_scale) + ensaymada_cost(ensaymada_scale) + u
 pandesal_unitcost = pandesal_cost(pandesal_scale)/total_pandesal_order if total_pandesal_order > 0 else 0
 ensaymada_unitcost = ensaymada_cost(ensaymada_scale)/total_ensaymada_order if total_ensaymada_order > 0 else 0
 ube_crinkle_unitcost = ube_crinkle_cost(ube_crinkle_scale)/total_ube_crinkle_order if total_ube_crinkle_order > 0 else 0
-
 st.markdown("## Finances")
 st.markdown("### Expect Cost to Make")
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -118,20 +118,20 @@ col5.markdown(f"**Total Cost Overral:** ${total_cost * 1.50:.2f}")
 
 st.markdown("### Expected Profit")
 
-col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-col1.markdown(f"**Pandesal Half Dozen:** ${(pandesal_halfdozen * 6) - (pandesal_unitcost * 6):.2f}")
-col2.markdown(f"**Pandesal Dozen:** ${pandesal_dozen * 12 - (pandesal_unitcost * 12):.2f}")
-col3.markdown(f"**Ensaymada (4):** ${ensaymada_four * 4 - (ensaymada_unitcost * 6):.2f}")
-col4.markdown(f"**Ensaymada Half Dozen:** ${ensaymada_halfdozen * 6 - (ensaymada_unitcost * 6):.2f}")
-col5.markdown(f"**Spanish Bread (4):** ${spanish_bread_four * 4 - (pandesal_unitcost * 4):.2f}")
-col6.markdown(f"**Spanish Bread Half Dozen:** ${spanish_bread_halfdozen * 6 - (pandesal_unitcost * 6):.2f}")
-col7.markdown(f"**Total Expected Profit:** ${
-    ((pandesal_halfdozen * 6) - (pandesal_unitcost * 6) +
-    (pandesal_dozen * 12 - (pandesal_unitcost * 12)) +
-    (ensaymada_four * 4 - (ensaymada_unitcost * 6)) +
-    (ensaymada_halfdozen * 6 - (ensaymada_unitcost * 6)) +
-    (spanish_bread_four * 4 - (pandesal_unitcost * 4)) +
-    (spanish_bread_halfdozen * 6 - (pandesal_unitcost * 6))):.2f}"
+pandesal_halfdozen_cost = 6
+pandesal_dozen_cost = 10
+ensaymada_four_cost = 12
+ensaymada_halfdozen_cost = 15 
+spanish_bread_four_cost = 10
+spanish_bread_halfdozen_cost = 12
+
+st.markdown(f"**Total Expected Profit:** ${
+    ((pandesal_halfdozen * pandesal_halfdozen_cost) - (pandesal_unitcost * 6) +
+    ((pandesal_dozen * pandesal_dozen_cost) - (pandesal_unitcost * 12)) +
+    ((ensaymada_four * ensaymada_four_cost) - (ensaymada_unitcost * 6)) +
+    ((ensaymada_halfdozen * ensaymada_halfdozen_cost) - (ensaymada_unitcost * 6)) +
+    ((spanish_bread_four * spanish_bread_four_cost) - (pandesal_unitcost * 4)) +
+    ((spanish_bread_halfdozen * spanish_bread_halfdozen_cost) - (pandesal_unitcost * 6))):.2f}"
              )
 st.markdown("---")
 
