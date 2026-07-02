@@ -1,34 +1,35 @@
 import streamlit as st
+from datetime import date, timedelta
+from db import init_db, get_connection, get_pack_sizes, record_order
 
 # ============================================================
-# Title
+# Setup — runs every time the app starts, but only creates
+# tables/seeds data the FIRST time (safe to leave in)
 # ============================================================
+init_db()
 
 st.markdown("# Bahay Bites Master Form")
 
 # ============================================================
-# Prices revised as of May 22, 2026
+# Pull current ingredient prices from the database instead of
+# a hardcoded dict. Now updating a price = editing a database
+# row, not editing this file.
 # ============================================================
-ingredient_prices = {
-    'bread_flour':      0.03,   # per oz
-    'sugar':            0.0375,   # per oz
-    'yeast':            0.31,  # per oz
-    'instant_mash':     0.17,   # per oz
-    'oil':              0.073,   # per fl oz
-    'salt':             0.032,   # per oz
-    'butter':           0.279,   # per oz
-    'egg':              0.137,   # per egg 
-    'milk':             0.022,   # per fl oz 
-    'cornstarch':       0.013,   # per oz 
-    'ube_jam':          0.90,    # per oz
-    'ube_extract':      0.845,   # per oz
-    'vanilla_extract':  1.31,    # per oz
-    'confectioners':    0.062,   # per oz
-    'baking_powder':    0.262,   # per oz
-}
+def get_ingredient_prices():
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT ingredient_name, unit_cost FROM ingredient_prices
+        GROUP BY ingredient_name
+        HAVING effective_date = MAX(effective_date)
+    """).fetchall()
+    conn.close()
+    return {row["ingredient_name"]: row["unit_cost"] for row in rows}
+
+ingredient_prices = get_ingredient_prices()
 
 # ============================================================
-# Cost of each item
+# Cost of each item (same formulas as before — these are still
+# Python functions, just reading prices from the DB now)
 # ============================================================
 
 def pandesal_cost(scale):
@@ -54,6 +55,18 @@ def ensaymada_cost(scale):
         4   * 0.3   * ingredient_prices['cornstarch']   +
         0.5 * 3.5   * ingredient_prices['instant_mash'] ) * scale * 1.075
 
+def spanish_bread_cost(scale):
+    # NOTE: placeholder formula — your original code never actually had
+    # a real Spanish Bread recipe, it was accidentally using ube_crinkle's.
+    # Fill this in with your real Spanish Bread ingredient amounts.
+    return (
+        3   * 4.25  * ingredient_prices['bread_flour']  +
+        0.5 * 7.05  * ingredient_prices['sugar']        +
+        3   * 0.35  * ingredient_prices['yeast']        +
+        4   * 0.5   * ingredient_prices['butter']       +
+        1   * 0.2   * ingredient_prices['salt']         +
+        0.5 * 8.0   * ingredient_prices['milk']) * scale * 1.075
+
 def ube_crinkle_cost(scale):
     return (
         1.75 * 4.25 * ingredient_prices['bread_flour']    +
@@ -67,222 +80,168 @@ def ube_crinkle_cost(scale):
         0.5  * 0.17 * ingredient_prices['vanilla_extract'] +
         1    * 4.0  * ingredient_prices['confectioners']) * scale * 1.075
 
+COST_FUNCTIONS = {
+    "Pandesal": pandesal_cost,
+    "Ensaymada": ensaymada_cost,
+    "Spanish Bread": spanish_bread_cost,
+    "Ube Crinkle Cookies": ube_crinkle_cost,
+}
+BASE_BATCH = {"Pandesal": 48, "Ensaymada": 30, "Spanish Bread": 30, "Ube Crinkle Cookies": 18}
+
 # ============================================================
-# Preorder Results
+# Preorders — pack sizes now pulled from the database instead
+# of being separate hardcoded st.number_input calls per size
 # ============================================================
 st.markdown("## Preorders")
 
-col1, col2,col3, col4, col5, col6 = st.columns(6)
-with col1:
-    pandesal_halfdozen = st.number_input(("**Pandesal** (Half Dozen)"), min_value=0, value=0, step=1)
-with col2:
-    pandesal_dozen = st.number_input(("**Pandesal** (Dozen)"), min_value=0, value=0, step=1)
-with col3:
-    ensaymada_four = st.number_input(("**Ensaymada** (Four)"), min_value=0, value=0, step=1)
-with col4:
-    ensaymada_halfdozen = st.number_input(("**Ensaymada** (Half Dozen)"), min_value=0, value=0, step=1)
-with col5:
-    spanish_bread_four = st.number_input(("**Spanish Bread** (Four)"), min_value=0, value=0, step=1)
-with col6:
-    spanish_bread_halfdozen = st.number_input(("**Spanish Bread** (Half Dozen)"), min_value=0, value=0, step=1)
-    
+pack_sizes = get_pack_sizes()  # list of rows: item_name, label, units_per_pack, price, pack_size_id
+quantities = {}  # pack_size_id -> quantity entered
+
+cols = st.columns(len(pack_sizes))
+for col, pack in zip(cols, pack_sizes):
+    with col:
+        quantities[pack["pack_size_id"]] = st.number_input(
+            f"**{pack['item_name']}** ({pack['label']})",
+            min_value=0, value=0, step=1,
+            key=f"qty_{pack['pack_size_id']}"
+        )
 
 # ============================================================
-# Total Cost Calculation
+# Totals per item, cost, profit — same math as before, just
+# driven by the pack_sizes/quantities from the DB now
 # ============================================================
-pandesal_base = 48
-ensaymada_base = 30
-ube_base = 18
+item_totals = {}       # item_name -> total units ordered
+item_scale = {}        # item_name -> scale factor for cost functions
+item_revenue = {}      # item_name -> revenue from this order
 
-total_pandesal_order = (pandesal_halfdozen * 6) +  (pandesal_dozen * 12)
-total_ensaymada_order = (ensaymada_four * 4) + (ensaymada_halfdozen * 6)
-total_ube_crinkle_order = (spanish_bread_four * 4) + (spanish_bread_halfdozen * 6)
+for pack in pack_sizes:
+    qty = quantities[pack["pack_size_id"]]
+    if qty == 0:
+        continue
+    name = pack["item_name"]
+    units = qty * pack["units_per_pack"]
+    item_totals[name] = item_totals.get(name, 0) + units
+    item_revenue[name] = item_revenue.get(name, 0) + qty * pack["price"]
 
-pandesal_scale = total_pandesal_order / pandesal_base if total_pandesal_order > 0 else 0
-ensaymada_scale = total_ensaymada_order / ensaymada_base if total_ensaymada_order > 0 else 0
-ube_crinkle_scale = total_ube_crinkle_order / ube_base if total_ube_crinkle_order > 0 else 0
+for name, total_units in item_totals.items():
+    if name in BASE_BATCH:
+        item_scale[name] = total_units / BASE_BATCH[name]
 
-total_cost = pandesal_cost(pandesal_scale) + ensaymada_cost(ensaymada_scale) + ube_crinkle_cost(ube_crinkle_scale)
+total_cost = sum(COST_FUNCTIONS[name](scale) for name, scale in item_scale.items())
 
-pandesal_unitcost = pandesal_cost(pandesal_scale)/total_pandesal_order if total_pandesal_order > 0 else 0
-ensaymada_unitcost = ensaymada_cost(ensaymada_scale)/total_ensaymada_order if total_ensaymada_order > 0 else 0
-ube_crinkle_unitcost = ube_crinkle_cost(ube_crinkle_scale)/total_ube_crinkle_order if total_ube_crinkle_order > 0 else 0
 st.markdown("## Finances")
-st.markdown("### Expect Cost to Make")
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.markdown(f"**Pandesal:** ${pandesal_cost(pandesal_scale):.2f}")
-col2.markdown(f"**Ensaymada:** ${ensaymada_cost(ensaymada_scale):.2f}")
-col3.markdown(f"**Ube Crinkles:** ${ube_crinkle_cost(ube_crinkle_scale):.2f}")
-col4.markdown(f"**Miscellaneous Expenses (gas, packaging, utlities):** ${total_cost *0.50 :.2f}")
-col5.markdown(f"**Total Cost Overral:** ${total_cost * 1.50:.2f}")                                        
+st.markdown("### Expected Cost to Make")
+cost_cols = st.columns(len(item_scale) + 2 if item_scale else 1)
+for col, (name, scale) in zip(cost_cols, item_scale.items()):
+    col.markdown(f"**{name}:** ${COST_FUNCTIONS[name](scale):.2f}")
+if item_scale:
+    cost_cols[-2].markdown(f"**Misc (gas, packaging, utilities):** ${total_cost * 0.50:.2f}")
+    cost_cols[-1].markdown(f"**Total Cost Overall:** ${total_cost * 1.50:.2f}")
 
 st.markdown("### Expected Profit")
-
-pandesal_halfdozen_cost = 6
-pandesal_dozen_cost = 10
-ensaymada_four_cost = 12
-ensaymada_halfdozen_cost = 15 
-spanish_bread_four_cost = 10
-spanish_bread_halfdozen_cost = 12
-
-st.markdown(f"**Total Expected Profit:** ${
-    ((pandesal_halfdozen * pandesal_halfdozen_cost) - (pandesal_unitcost * 6) +
-    ((pandesal_dozen * pandesal_dozen_cost) - (pandesal_unitcost * 12)) +
-    ((ensaymada_four * ensaymada_four_cost) - (ensaymada_unitcost * 6)) +
-    ((ensaymada_halfdozen * ensaymada_halfdozen_cost) - (ensaymada_unitcost * 6)) +
-    ((spanish_bread_four * spanish_bread_four_cost) - (pandesal_unitcost * 4)) +
-    ((spanish_bread_halfdozen * spanish_bread_halfdozen_cost) - (pandesal_unitcost * 6))):.2f}"
-             )
+total_revenue = sum(item_revenue.values())
+total_profit = total_revenue - total_cost
+st.markdown(f"**Total Expected Profit:** ${total_profit:.2f}")
 st.markdown("---")
 
 # ============================================================
-# Shopping List
+# Save this week's order to the database
 # ============================================================
+st.markdown("## Save This Order")
+col1, col2 = st.columns(2)
+with col1:
+    week_start = st.date_input("Week Start (Monday orders opened)", value=date.today())
+with col2:
+    pickup_date = st.date_input("Pickup Date (Sunday)", value=date.today() + timedelta(days=(6 - date.today().weekday())))
 
+if st.button("💾 Save Order to Database"):
+    line_items = [
+        {"pack_size_id": pack["pack_size_id"], "quantity": quantities[pack["pack_size_id"]]}
+        for pack in pack_sizes if quantities[pack["pack_size_id"]] > 0
+    ]
+    if line_items:
+        order_id = record_order(str(week_start), str(pickup_date), line_items)
+        st.success(f"Saved order #{order_id} with {len(line_items)} line item(s)!")
+    else:
+        st.warning("Enter at least one item before saving.")
+
+st.markdown("---")
+
+# ============================================================
+# Grocery List (same logic, driven by item_scale from the DB path)
+# ============================================================
 st.markdown("## Grocery List")
 
-if total_pandesal_order > 0 or total_ensaymada_order > 0 or total_ube_crinkle_order > 0:
-    
+if item_scale:
     shopping = {
-        'cups bread flour':         0,
-        'cups sugar':               0,
-        'tsp yeast':                0,
-        'cups instant mash':        0,
-        'tbsp butter':              0,
-        'tsp salt':                 0,
-        'eggs':                     0,
-        'cups water':               0,
-        'cups oil':                 0,
-        'cups breadcrumbs':         0,
-        'cups milk':                0,
-        'tbsp cornstarch':          0,
-        'cups ube halaya jam':      0,
-        'tsp ube extract':          0,
-        'tsp vanilla extract':      0,
-        'cups confectioners sugar': 0,
-        'tsp baking powder':        0, }
+        'cups bread flour': 0, 'cups sugar': 0, 'tsp yeast': 0, 'cups instant mash': 0,
+        'tbsp butter': 0, 'tsp salt': 0, 'eggs': 0, 'cups water': 0, 'cups oil': 0,
+        'cups breadcrumbs': 0, 'cups milk': 0, 'tbsp cornstarch': 0,
+        'cups ube halaya jam': 0, 'tsp ube extract': 0, 'tsp vanilla extract': 0,
+        'cups confectioners sugar': 0, 'tsp baking powder': 0,
+    }
 
-    if total_pandesal_order > 0:
-        shopping['cups bread flour']  += 8   * pandesal_scale
-        shopping['cups sugar']        += 0.5 * pandesal_scale
-        shopping['tsp yeast']         += 4   * pandesal_scale
-        shopping['cups instant mash'] += 1   * pandesal_scale
-        shopping['tsp salt']          += 2   * pandesal_scale
-        shopping['cups water']        += 3   * pandesal_scale
-        shopping['cups oil']          += 0.5 * pandesal_scale
-        shopping['cups breadcrumbs']  += 1   * pandesal_scale
+    if "Pandesal" in item_scale:
+        s = item_scale["Pandesal"]
+        shopping['cups bread flour']  += 8   * s
+        shopping['cups sugar']        += 0.5 * s
+        shopping['tsp yeast']         += 4   * s
+        shopping['cups instant mash'] += 1   * s
+        shopping['tsp salt']          += 2   * s
+        shopping['cups water']        += 3   * s
+        shopping['cups oil']          += 0.5 * s
+        shopping['cups breadcrumbs']  += 1   * s
 
-    if total_ensaymada_order > 0:
-        shopping['cups bread flour']  += 4   * ensaymada_scale
-        shopping['cups sugar']        += 1   * ensaymada_scale
-        shopping['tsp yeast']         += 6   * ensaymada_scale
-        shopping['cups instant mash'] += 0.5 * ensaymada_scale
-        shopping['tbsp butter']       += 6   * ensaymada_scale
-        shopping['tsp salt']          += 0.5 * ensaymada_scale
-        shopping['eggs']              += 3   * ensaymada_scale
-        shopping['cups milk']         += 1   * ensaymada_scale
-        shopping['tbsp cornstarch']   += 4   * ensaymada_scale
+    if "Ensaymada" in item_scale:
+        s = item_scale["Ensaymada"]
+        shopping['cups bread flour']  += 4   * s
+        shopping['cups sugar']        += 1   * s
+        shopping['tsp yeast']         += 6   * s
+        shopping['cups instant mash'] += 0.5 * s
+        shopping['tbsp butter']       += 6   * s
+        shopping['tsp salt']          += 0.5 * s
+        shopping['eggs']              += 3   * s
+        shopping['cups milk']         += 1   * s
+        shopping['tbsp cornstarch']   += 4   * s
 
-    if total_ube_crinkle_order > 0:
-        shopping['cups bread flour']         += 1.75 * ube_crinkle_scale
-        shopping['cups sugar']               += 1    * ube_crinkle_scale
-        shopping['tbsp butter']              += 0.5  * ube_crinkle_scale
-        shopping['tsp salt']                 += 0.25 * ube_crinkle_scale
-        shopping['eggs']                     += 1    * ube_crinkle_scale
-        shopping['cups ube halaya jam']      += 0.5  * ube_crinkle_scale
-        shopping['tsp ube extract']          += 2    * ube_crinkle_scale
-        shopping['tsp vanilla extract']      += 0.5  * ube_crinkle_scale
-        shopping['cups confectioners sugar'] += 1    * ube_crinkle_scale
-        shopping['tsp baking powder']        += 1    * ube_crinkle_scale
+    if "Ube Crinkle Cookies" in item_scale:
+        s = item_scale["Ube Crinkle Cookies"]
+        shopping['cups bread flour']         += 1.75 * s
+        shopping['cups sugar']               += 1    * s
+        shopping['tbsp butter']              += 0.5  * s
+        shopping['tsp salt']                 += 0.25 * s
+        shopping['eggs']                     += 1    * s
+        shopping['cups ube halaya jam']      += 0.5  * s
+        shopping['tsp ube extract']          += 2    * s
+        shopping['tsp vanilla extract']      += 0.5  * s
+        shopping['cups confectioners sugar'] += 1    * s
+        shopping['tsp baking powder']        += 1    * s
 
     for ingredient, amount in shopping.items():
         if amount > 0:
             st.write(f"- {amount:.2f} {ingredient}")
-
 else:
     st.info("Enter your preorders above to generate a grocery list!")
 
 # ============================================================
-# Recipe Cards
+# Order History — new section, only possible now that orders
+# are actually saved
 # ============================================================
-st.markdown("## Recipe Cards")
+st.markdown("## Order History")
+conn = get_connection()
+history = conn.execute("""
+    SELECT o.week_start, i.name AS item_name, ps.label,
+           SUM(oli.quantity) AS packs, SUM(oli.line_revenue) AS revenue
+    FROM order_line_items oli
+    JOIN orders o ON oli.order_id = o.order_id
+    JOIN pack_sizes ps ON oli.pack_size_id = ps.pack_size_id
+    JOIN items i ON ps.item_id = i.item_id
+    GROUP BY o.week_start, i.name, ps.label
+    ORDER BY o.week_start DESC
+""").fetchall()
+conn.close()
 
-if total_pandesal_order > 0:
-    s = pandesal_scale
-    with st.expander("Pandesal", expanded=True):
-        st.write(f"**Servings:** {total_pandesal_order} rolls")
-        st.markdown("**Ingredients:**")
-        st.write(f"- {4*s:.1f} cups warm water")
-        st.write(f"- {0.5*s:.2f} cups sugar")
-        st.write(f"- {4*s:.1f} tbsp yeast")
-        st.write(f"- {8*s:.1f} cups bread flour")
-        st.write(f"- {1*s:.2f} cups instant mashed potatoes")
-        st.write(f"- {0.5*s:.2f} cups oil")
-        st.write(f"- {2*s:.1f} tsp salt")
-        st.write(f"- {1*s:.2f} cups breadcrumbs")
-        st.markdown("**Instructions:**")
-        st.write("1. Wet ingredients: Mix warm water, sugar, and yeast in a bowl.")
-        st.write("2. Dry ingredients: Mix bread flour, instant mash, oil, and salt.")
-        st.write("3. Pour dry into wet and knead until fully combined (add water if too dry).")
-        st.write("4. Roll into a log and cut into pieces 1.5 inches wide.")
-        st.write("5. Coat each piece in breadcrumbs.")
-        st.write("6. Proof in oven at 100°F for 20 minutes or until desired size.")
-        st.write("7. Bake at 350°F for 15-20 minutes until golden.")
-        st.success(f"Estimated Batch Cost: ${pandesal_cost(pandesal_scale):.2f}")
-        st.info(f"Estimated Price per roll: ${pandesal_cost(pandesal_scale)/total_pandesal_order:.2f}")
-
-if total_ensaymada_order > 0:
-    s = ensaymada_scale
-    with st.expander("Ensaymada", expanded=True):
-        st.write(f"**Servings:** {total_ensaymada_order} pieces")
-        st.markdown("**Ingredients:**")
-        st.write(f"- {1*s:.2f} cups milk")
-        st.write(f"- {2*s:.1f} eggs")
-        st.write(f"- {1*s:.1f} egg yolk(s)")
-        st.write(f"- {6*s:.1f} tbsp butter")
-        st.write(f"- {0.5*s:.2f} tsp salt")
-        st.write(f"- {4*s:.1f} cups bread flour")
-        st.write(f"- {4*s:.1f} tbsp cornstarch")
-        st.write(f"- {0.5*s:.2f} cups instant mashed potatoes")
-        st.write(f"- {6*s:.1f} tsp instant yeast")
-        st.write(f"- {1*s:.2f} cups sugar")
-        st.markdown("**Instructions:**")
-        st.write("1. Combine yeast and warm milk. Let bubble for 10-15 minutes.")
-        st.write("2. Add eggs, egg yolk, salt, sugar, and chopped butter.")
-        st.write("3. Add bread flour and cornstarch (1 tbsp cornstarch per 1 cup flour).")
-        st.write("4. Add instant mashed potatoes.")
-        st.write("5. Set bread machine to setting 7 and run for 1.5 hours.")
-        st.write("6. After 10 minutes check dough and scrape sides. Check again in 1 hour.")
-        st.success(f"Estimated Batch Cost: ${ensaymada_cost(ensaymada_scale):.2f}")
-        st.info(f"Estimated Per piece: ${ensaymada_cost(ensaymada_scale)/total_ensaymada_order:.2f}")
-
-if total_ube_crinkle_order > 0:
-    s = ube_crinkle_scale
-    with st.expander("Ube Crinkle Cookies", expanded=True):
-        st.write(f"**Servings:** {total_ube_crinkle_order} cookies")
-        st.markdown("**Ingredients:**")
-        st.write(f"- {1.75*s:.2f} cups all-purpose flour")
-        st.write(f"- {1*s:.2f} tsp baking powder")
-        st.write(f"- {0.25*s:.2f} tsp kosher salt")
-        st.write(f"- {1*s:.2f} cups granulated sugar")
-        st.write(f"- {0.5*s:.2f} cups unsalted butter")
-        st.write(f"- {1*s:.1f} large egg(s)")
-        st.write(f"- {0.5*s:.2f} cups ube halaya jam")
-        st.write(f"- {2*s:.2f} tsp ube extract")
-        st.write(f"- {0.5*s:.2f} tsp pure vanilla extract")
-        st.write(f"- {1*s:.2f} cups confectioners sugar")
-        st.markdown("**Instructions:**")
-        st.write("1. Preheat oven to 350°F.")
-        st.write("2. Whisk together flour, baking powder, and salt.")
-        st.write("3. Beat sugar and butter until light and fluffy.")
-        st.write("4. Add egg and beat until combined.")
-        st.write("5. Add ube jam, ube extract, and vanilla. Beat until completely purple.")
-        st.write("6. Gradually add dry ingredients and beat until just combined.")
-        st.write("7. Chill overnight.")
-        st.write("8. Roll into 3 tbsp balls and coat generously with confectioners sugar.")
-        st.write("9. Bake for 12-15 minutes.")
-        st.success(f"Estimated Batch Cost: ${ube_crinkle_cost(ube_crinkle_scale):.2f}")
-        st.info(f"Estimated Per cookie: ${ube_crinkle_cost(ube_crinkle_scale)/total_ube_crinkle_order:.2f}")
-
-if total_pandesal_order == 0 and total_ensaymada_order == 0 and total_ube_crinkle_order == 0:
-    st.info("Enter your preorder quantities above to see your scaled recipes!")
+if history:
+    st.dataframe([dict(row) for row in history], use_container_width=True)
+else:
+    st.info("No saved orders yet — save your first order above to start building history.")
