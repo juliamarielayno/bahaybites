@@ -1,333 +1,162 @@
-import streamlit as st
-from datetime import date, timedelta
-from db import init_db, get_connection, get_pack_sizes, record_order
+"""
+BahayBites database helper.
 
-init_db()
+Usage in your Streamlit app:
+    from db import init_db, get_connection, record_order, get_pack_sizes, weekly_summary
 
-st.set_page_config(page_title="Bahay Bites", page_icon="🥖", layout="wide")
+    init_db()  # run once, safe to call every startup (CREATE TABLE IF NOT EXISTS)
+"""
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
+import sqlite3
+from pathlib import Path
+from datetime import datetime, date
 
-:root {
-    --bg-kraft: #EDE4D3;
-    --ube-purple: #6B4E8E;
-    --ube-purple-dark: #533B70;
-    --crust-brown: #8B5A3C;
-    --cream: #FBF7EF;
-    --ink: #2E2018;
-    --sticker-red: #C1553D;
-}
+DB_PATH = Path(__file__).parent / "bahaybites.db"
 
-.stApp { background-color: var(--bg-kraft); }
 
-h1, h2, h3 {
-    font-family: 'Fraunces', serif !important;
-    color: var(--ink) !important;
-}
-h1 { border-bottom: 3px solid var(--crust-brown); padding-bottom: 0.4rem; }
-h2 { color: var(--ube-purple-dark) !important; margin-top: 1.5rem !important; }
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
-p, label, .stMarkdown, div[data-testid="stNumberInput"] label {
-    font-family: 'Inter', sans-serif !important;
-    color: var(--ink) !important;
-}
 
-/* Buttons — ube purple, warm hover */
-.stButton > button {
-    background-color: var(--ube-purple) !important;
-    color: var(--cream) !important;
-    border: none !important;
-    border-radius: 6px !important;
-    font-family: 'Inter', sans-serif !important;
-    font-weight: 600 !important;
-    padding: 0.55rem 1.3rem !important;
-    transition: background-color 0.15s ease;
-}
-.stButton > button:hover { background-color: var(--ube-purple-dark) !important; }
+def init_db():
+    """Create tables if they don't exist, then seed current menu if empty."""
+    conn = get_connection()
+    schema_path = Path(__file__).parent / "schema.sql"
+    conn.executescript(schema_path.read_text())
+    conn.commit()
 
-/* Metrics as order-ticket stubs */
-div[data-testid="stMetric"] {
-    background-color: var(--cream);
-    border: 1px dashed var(--crust-brown);
-    border-radius: 8px;
-    padding: 0.9rem 1rem;
-}
-div[data-testid="stMetricValue"] {
-    font-family: 'IBM Plex Mono', monospace !important;
-    color: var(--ube-purple-dark) !important;
-}
-div[data-testid="stMetricLabel"] {
-    font-family: 'Inter', sans-serif !important;
-    color: var(--ink) !important;
-}
+    if conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0:
+        _seed_menu(conn)
+    conn.close()
 
-/* Number inputs */
-div[data-testid="stNumberInput"] input {
-    font-family: 'IBM Plex Mono', monospace !important;
-    border: 1px solid var(--crust-brown) !important;
-    border-radius: 6px !important;
-}
 
-/* Expanders (recipe cards) */
-div[data-testid="stExpander"] {
-    background-color: var(--cream);
-    border: 1px solid var(--crust-brown);
-    border-radius: 8px;
-}
+def _seed_menu(conn):
+    """Seed items, pack sizes, and ingredient prices from your current menu."""
+    items = [
+        ("Pandesal", "Regular Menu"),
+        ("Ensaymada", "Regular Menu"),
+        ("Spanish Bread", "Regular Menu"),
+        ("Ube Crinkle Cookies", "Weekly Drop"),
+        ("Bahay Basket", "Bahay Basket"),
+    ]
+    conn.executemany("INSERT INTO items (name, category) VALUES (?, ?)", items)
 
-/* Dataframe (order history) */
-div[data-testid="stDataFrame"] {
-    border: 1px solid var(--crust-brown);
-    border-radius: 8px;
-    overflow: hidden;
-}
+    item_ids = {row["name"]: row["item_id"] for row in conn.execute("SELECT item_id, name FROM items")}
 
-hr { border-color: var(--crust-brown) !important; opacity: 0.4; }
-</style>
-""", unsafe_allow_html=True)
+    pack_sizes = [
+        (item_ids["Pandesal"], "Half Dozen", 6, 6.00),
+        (item_ids["Pandesal"], "Dozen", 12, 10.00),
+        (item_ids["Ensaymada"], "Four", 4, 12.00),
+        (item_ids["Ensaymada"], "Half Dozen", 6, 15.00),
+        (item_ids["Spanish Bread"], "Four", 4, 10.00),
+        (item_ids["Spanish Bread"], "Half Dozen", 6, 12.00),
+        (item_ids["Ube Crinkle Cookies"], "Single", 1, 3.00),
+        (item_ids["Ube Crinkle Cookies"], "Four", 4, 10.00),
+        (item_ids["Ube Crinkle Cookies"], "Half Dozen", 6, 12.00),
+        (item_ids["Bahay Basket"], "Basket", 1, 20.00),
+    ]
+    conn.executemany(
+        "INSERT INTO pack_sizes (item_id, label, units_per_pack, price) VALUES (?, ?, ?, ?)",
+        pack_sizes,
+    )
 
-st.markdown("# 🥖 Bahay Bites Master Form")
-st.caption("Weekly preorder planning · costs · grocery list · order history")
+    ingredient_prices = [
+        ("bread_flour", "oz", 0.03),
+        ("sugar", "oz", 0.0375),
+        ("yeast", "oz", 0.31),
+        ("instant_mash", "oz", 0.17),
+        ("oil", "fl_oz", 0.073),
+        ("salt", "oz", 0.032),
+        ("butter", "oz", 0.279),
+        ("egg", "egg", 0.137),
+        ("milk", "fl_oz", 0.022),
+        ("cornstarch", "oz", 0.013),
+        ("ube_jam", "oz", 0.90),
+        ("ube_extract", "oz", 0.845),
+        ("vanilla_extract", "oz", 1.31),
+        ("confectioners", "oz", 0.062),
+        ("baking_powder", "oz", 0.262),
+    ]
+    conn.executemany(
+        "INSERT INTO ingredient_prices (ingredient_name, unit, unit_cost) VALUES (?, ?, ?)",
+        ingredient_prices,
+    )
+    conn.commit()
 
-# ============================================================
-# Pull current ingredient prices from the database instead of
-# a hardcoded dict. Now updating a price = editing a database
-# row, not editing this file.
-# ============================================================
-def get_ingredient_prices():
+
+def get_pack_sizes(conn=None):
+    """Return all active pack sizes joined with item name — use this to build
+    your Streamlit input widgets instead of hardcoding them."""
+    close = conn is None
+    conn = conn or get_connection()
+    rows = conn.execute("""
+        SELECT ps.pack_size_id, i.name AS item_name, ps.label, ps.units_per_pack, ps.price
+        FROM pack_sizes ps JOIN items i ON ps.item_id = i.item_id
+        WHERE ps.active = 1
+        ORDER BY i.name, ps.units_per_pack
+    """).fetchall()
+    if close:
+        conn.close()
+    return rows
+
+
+def record_order(week_start: str, pickup_date: str, line_items: list, customer_name: str = None):
+    """
+    line_items: list of dicts like {"pack_size_id": 3, "quantity": 2}
+    week_start / pickup_date: 'YYYY-MM-DD' strings
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO orders (week_start, pickup_date, customer_name) VALUES (?, ?, ?)",
+        (week_start, pickup_date, customer_name),
+    )
+    order_id = cur.lastrowid
+
+    for li in line_items:
+        pack = conn.execute(
+            "SELECT price FROM pack_sizes WHERE pack_size_id = ?", (li["pack_size_id"],)
+        ).fetchone()
+        unit_price = pack["price"]
+        revenue = unit_price * li["quantity"]
+        cur.execute(
+            """INSERT INTO order_line_items (order_id, pack_size_id, quantity, unit_price, line_revenue)
+               VALUES (?, ?, ?, ?, ?)""",
+            (order_id, li["pack_size_id"], li["quantity"], unit_price, revenue),
+        )
+    conn.commit()
+    conn.close()
+    return order_id
+
+
+def weekly_summary():
+    """Revenue and units per item per week — the exact table a forecasting
+    model will train on later."""
     conn = get_connection()
     rows = conn.execute("""
-        SELECT ingredient_name, unit_cost FROM ingredient_prices
-        GROUP BY ingredient_name
-        HAVING effective_date = MAX(effective_date)
+        SELECT o.week_start,
+               i.name AS item_name,
+               ps.label AS pack_label,
+               SUM(oli.quantity) AS packs_sold,
+               SUM(oli.quantity * ps.units_per_pack) AS units_sold,
+               SUM(oli.line_revenue) AS revenue
+        FROM order_line_items oli
+        JOIN orders o ON oli.order_id = o.order_id
+        JOIN pack_sizes ps ON oli.pack_size_id = ps.pack_size_id
+        JOIN items i ON ps.item_id = i.item_id
+        GROUP BY o.week_start, i.name, ps.label
+        ORDER BY o.week_start, i.name
     """).fetchall()
     conn.close()
-    return {row["ingredient_name"]: row["unit_cost"] for row in rows}
+    return rows
 
-ingredient_prices = get_ingredient_prices()
 
-# ============================================================
-# Cost of each item (same formulas as before — these are still
-# Python functions, just reading prices from the DB now)
-# ============================================================
-
-def pandesal_cost(scale):
-    return (
-        8   * 4.25  * ingredient_prices['bread_flour']  +
-        0.5 * 8.0   * ingredient_prices['bread_flour']  +
-        0.5 * 7.05  * ingredient_prices['sugar']        +
-        4   * 0.35  * ingredient_prices['yeast']        +
-        1   * 3.5   * ingredient_prices['instant_mash'] +
-        0.5 * 8.0   * ingredient_prices['oil']          +
-        2   * 0.2   * ingredient_prices['salt']) * scale * 1.075
-
-def ensaymada_cost(scale):
-    return (
-        4   * 4.25  * ingredient_prices['bread_flour']  +
-        1   * 8.0   * ingredient_prices['milk']         +
-        2   * 1     * ingredient_prices['egg']          +
-        1   * 1     * ingredient_prices['egg']          +  # egg yolk
-        6   * 0.5   * ingredient_prices['butter']       +
-        0.5 * 0.2   * ingredient_prices['salt']         +
-        4   * 0.35  * ingredient_prices['yeast']        +
-        1   * 7.05  * ingredient_prices['sugar']        +
-        4   * 0.3   * ingredient_prices['cornstarch']   +
-        0.5 * 3.5   * ingredient_prices['instant_mash'] ) * scale * 1.075
-
-def spanish_bread_cost(scale):
-    # NOTE: placeholder formula — your original code never actually had
-    # a real Spanish Bread recipe, it was accidentally using ube_crinkle's.
-    # Fill this in with your real Spanish Bread ingredient amounts.
-    return (
-        3   * 4.25  * ingredient_prices['bread_flour']  +
-        0.5 * 7.05  * ingredient_prices['sugar']        +
-        3   * 0.35  * ingredient_prices['yeast']        +
-        4   * 0.5   * ingredient_prices['butter']       +
-        1   * 0.2   * ingredient_prices['salt']         +
-        0.5 * 8.0   * ingredient_prices['milk']) * scale * 1.075
-
-def ube_crinkle_cost(scale):
-    return (
-        1.75 * 4.25 * ingredient_prices['bread_flour']    +
-        1    * 0.167* ingredient_prices['baking_powder']   +
-        0.25 * 0.2  * ingredient_prices['salt']            +
-        1    * 7.0  * ingredient_prices['sugar']           +
-        0.5  * 8.0  * ingredient_prices['butter']          +
-        1    * 1    * ingredient_prices['egg']             +
-        0.5  * 9.5  * ingredient_prices['ube_jam']         +
-        2    * 0.17 * ingredient_prices['ube_extract']     +
-        0.5  * 0.17 * ingredient_prices['vanilla_extract'] +
-        1    * 4.0  * ingredient_prices['confectioners']) * scale * 1.075
-
-COST_FUNCTIONS = {
-    "Pandesal": pandesal_cost,
-    "Ensaymada": ensaymada_cost,
-    "Spanish Bread": spanish_bread_cost,
-    "Ube Crinkle Cookies": ube_crinkle_cost,
-}
-BASE_BATCH = {"Pandesal": 48, "Ensaymada": 30, "Spanish Bread": 30, "Ube Crinkle Cookies": 18}
-
-# ============================================================
-# Preorders — pack sizes now pulled from the database instead
-# of being separate hardcoded st.number_input calls per size
-# ============================================================
-st.markdown("## Preorders")
-
-pack_sizes = get_pack_sizes()  # list of rows: item_name, label, units_per_pack, price, pack_size_id
-quantities = {}  # pack_size_id -> quantity entered
-
-cols = st.columns(len(pack_sizes))
-for col, pack in zip(cols, pack_sizes):
-    with col:
-        quantities[pack["pack_size_id"]] = st.number_input(
-            f"**{pack['item_name']}** ({pack['label']})",
-            min_value=0, value=0, step=1,
-            key=f"qty_{pack['pack_size_id']}"
-        )
-
-# ============================================================
-# Totals per item, cost, profit — same math as before, just
-# driven by the pack_sizes/quantities from the DB now
-# ============================================================
-item_totals = {}       # item_name -> total units ordered
-item_scale = {}        # item_name -> scale factor for cost functions
-item_revenue = {}      # item_name -> revenue from this order
-
-for pack in pack_sizes:
-    qty = quantities[pack["pack_size_id"]]
-    if qty == 0:
-        continue
-    name = pack["item_name"]
-    units = qty * pack["units_per_pack"]
-    item_totals[name] = item_totals.get(name, 0) + units
-    item_revenue[name] = item_revenue.get(name, 0) + qty * pack["price"]
-
-for name, total_units in item_totals.items():
-    if name in BASE_BATCH:
-        item_scale[name] = total_units / BASE_BATCH[name]
-
-total_cost = sum(COST_FUNCTIONS[name](scale) for name, scale in item_scale.items())
-
-st.markdown("## 🧾 Finances")
-if item_scale:
-    st.markdown("**Expected Cost to Make**")
-    cost_cols = st.columns(len(item_scale) + 2)
-    for col, (name, scale) in zip(cost_cols, item_scale.items()):
-        col.metric(name, f"${COST_FUNCTIONS[name](scale):.2f}")
-    cost_cols[-2].metric("Misc (gas, packaging, utilities)", f"${total_cost * 0.50:.2f}")
-    cost_cols[-1].metric("Total Cost Overall", f"${total_cost * 1.50:.2f}")
-
-    total_revenue = sum(item_revenue.values())
-    total_profit = total_revenue - total_cost
-    st.markdown("**Expected Profit**")
-    profit_cols = st.columns(3)
-    profit_cols[0].metric("Revenue", f"${total_revenue:.2f}")
-    profit_cols[1].metric("Cost", f"${total_cost:.2f}")
-    profit_cols[2].metric("Profit", f"${total_profit:.2f}")
-else:
-    st.info("Enter your preorders above to see cost and profit estimates!")
-st.markdown("---")
-
-# ============================================================
-# Save this week's order to the database
-# ============================================================
-st.markdown("## 💾 Save This Order")
-col1, col2 = st.columns(2)
-with col1:
-    week_start = st.date_input("Week Start (Monday orders opened)", value=date.today())
-with col2:
-    pickup_date = st.date_input("Pickup Date (Sunday)", value=date.today() + timedelta(days=(6 - date.today().weekday())))
-
-if st.button("💾 Save Order to Database"):
-    line_items = [
-        {"pack_size_id": pack["pack_size_id"], "quantity": quantities[pack["pack_size_id"]]}
-        for pack in pack_sizes if quantities[pack["pack_size_id"]] > 0
-    ]
-    if line_items:
-        order_id = record_order(str(week_start), str(pickup_date), line_items)
-        st.success(f"Saved order #{order_id} with {len(line_items)} line item(s)!")
-    else:
-        st.warning("Enter at least one item before saving.")
-
-st.markdown("---")
-
-# ============================================================
-# Grocery List (same logic, driven by item_scale from the DB path)
-# ============================================================
-st.markdown("## 🛒 Grocery List")
-
-if item_scale:
-    shopping = {
-        'cups bread flour': 0, 'cups sugar': 0, 'tsp yeast': 0, 'cups instant mash': 0,
-        'tbsp butter': 0, 'tsp salt': 0, 'eggs': 0, 'cups water': 0, 'cups oil': 0,
-        'cups breadcrumbs': 0, 'cups milk': 0, 'tbsp cornstarch': 0,
-        'cups ube halaya jam': 0, 'tsp ube extract': 0, 'tsp vanilla extract': 0,
-        'cups confectioners sugar': 0, 'tsp baking powder': 0,
-    }
-
-    if "Pandesal" in item_scale:
-        s = item_scale["Pandesal"]
-        shopping['cups bread flour']  += 8   * s
-        shopping['cups sugar']        += 0.5 * s
-        shopping['tsp yeast']         += 4   * s
-        shopping['cups instant mash'] += 1   * s
-        shopping['tsp salt']          += 2   * s
-        shopping['cups water']        += 3   * s
-        shopping['cups oil']          += 0.5 * s
-        shopping['cups breadcrumbs']  += 1   * s
-
-    if "Ensaymada" in item_scale:
-        s = item_scale["Ensaymada"]
-        shopping['cups bread flour']  += 4   * s
-        shopping['cups sugar']        += 1   * s
-        shopping['tsp yeast']         += 6   * s
-        shopping['cups instant mash'] += 0.5 * s
-        shopping['tbsp butter']       += 6   * s
-        shopping['tsp salt']          += 0.5 * s
-        shopping['eggs']              += 3   * s
-        shopping['cups milk']         += 1   * s
-        shopping['tbsp cornstarch']   += 4   * s
-
-    if "Ube Crinkle Cookies" in item_scale:
-        s = item_scale["Ube Crinkle Cookies"]
-        shopping['cups bread flour']         += 1.75 * s
-        shopping['cups sugar']               += 1    * s
-        shopping['tbsp butter']              += 0.5  * s
-        shopping['tsp salt']                 += 0.25 * s
-        shopping['eggs']                     += 1    * s
-        shopping['cups ube halaya jam']      += 0.5  * s
-        shopping['tsp ube extract']          += 2    * s
-        shopping['tsp vanilla extract']      += 0.5  * s
-        shopping['cups confectioners sugar'] += 1    * s
-        shopping['tsp baking powder']        += 1    * s
-
-    for ingredient, amount in shopping.items():
-        if amount > 0:
-            st.write(f"- {amount:.2f} {ingredient}")
-else:
-    st.info("Enter your preorders above to generate a grocery list!")
-
-# ============================================================
-# Order History — new section, only possible now that orders
-# are actually saved
-# ============================================================
-st.markdown("## 📖 Order History")
-conn = get_connection()
-history = conn.execute("""
-    SELECT o.week_start, i.name AS item_name, ps.label,
-           SUM(oli.quantity) AS packs, SUM(oli.line_revenue) AS revenue
-    FROM order_line_items oli
-    JOIN orders o ON oli.order_id = o.order_id
-    JOIN pack_sizes ps ON oli.pack_size_id = ps.pack_size_id
-    JOIN items i ON ps.item_id = i.item_id
-    GROUP BY o.week_start, i.name, ps.label
-    ORDER BY o.week_start DESC
-""").fetchall()
-conn.close()
-
-if history:
-    st.dataframe([dict(row) for row in history], use_container_width=True)
-else:
-    st.info("No saved orders yet — save your first order above to start building history.")
+if __name__ == "__main__":
+    init_db()
+    print(f"Database initialized at {DB_PATH}")
+    print("\nSeeded pack sizes:")
+    for row in get_pack_sizes():
+        print(f"  {row['item_name']} — {row['label']}: {row['units_per_pack']} units @ ${row['price']:.2f}")
