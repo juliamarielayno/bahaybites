@@ -8,7 +8,98 @@ from db import init_db, get_connection, get_pack_sizes, record_order
 # ============================================================
 init_db()
 
-st.markdown("# Bahay Bites Master Form")
+st.set_page_config(page_title="Bahay Bites", layout="wide")
+
+# ============================================================
+# Theme — pulled from BahayBites' actual packaging: kraft paper
+# background, ube purple as the primary accent, pandesal-crust
+# brown as the secondary accent. Prices/order data get a
+# monospace "order ticket" treatment.
+# ============================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+:root {
+    --bg-kraft: #EDE4D3;
+    --ube-purple: #6B4E8E;
+    --ube-purple-dark: #533B70;
+    --crust-brown: #8B5A3C;
+    --cream: #FBF7EF;
+    --ink: #2E2018;
+    --sticker-red: #C1553D;
+}
+
+.stApp { background-color: var(--bg-kraft); }
+
+h1, h2, h3 {
+    font-family: 'Fraunces', serif !important;
+    color: var(--ink) !important;
+}
+h1 { border-bottom: 3px solid var(--crust-brown); padding-bottom: 0.4rem; }
+h2 { color: var(--ube-purple-dark) !important; margin-top: 1.5rem !important; }
+
+p, label, .stMarkdown, div[data-testid="stNumberInput"] label {
+    font-family: 'Inter', sans-serif !important;
+    color: var(--ink) !important;
+}
+
+/* Buttons — ube purple, warm hover */
+.stButton > button {
+    background-color: var(--ube-purple) !important;
+    color: var(--cream) !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    padding: 0.55rem 1.3rem !important;
+    transition: background-color 0.15s ease;
+}
+.stButton > button:hover { background-color: var(--ube-purple-dark) !important; }
+
+/* Metrics as order-ticket stubs */
+div[data-testid="stMetric"] {
+    background-color: var(--cream);
+    border: 1px dashed var(--crust-brown);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+}
+div[data-testid="stMetricValue"] {
+    font-family: 'IBM Plex Mono', monospace !important;
+    color: var(--ube-purple-dark) !important;
+}
+div[data-testid="stMetricLabel"] {
+    font-family: 'Inter', sans-serif !important;
+    color: var(--ink) !important;
+}
+
+/* Number inputs */
+div[data-testid="stNumberInput"] input {
+    font-family: 'IBM Plex Mono', monospace !important;
+    border: 1px solid var(--crust-brown) !important;
+    border-radius: 6px !important;
+}
+
+/* Expanders (recipe cards) */
+div[data-testid="stExpander"] {
+    background-color: var(--cream);
+    border: 1px solid var(--crust-brown);
+    border-radius: 8px;
+}
+
+/* Dataframe (order history) */
+div[data-testid="stDataFrame"] {
+    border: 1px solid var(--crust-brown);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+hr { border-color: var(--crust-brown) !important; opacity: 0.4; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("# 🥖 Bahay Bites Master Form")
+st.caption("Weekly preorder planning · costs · grocery list · order history")
 
 # ============================================================
 # Pull current ingredient prices from the database instead of
@@ -129,25 +220,30 @@ for name, total_units in item_totals.items():
 
 total_cost = sum(COST_FUNCTIONS[name](scale) for name, scale in item_scale.items())
 
-st.markdown("## Finances")
-st.markdown("### Expected Cost to Make")
-cost_cols = st.columns(len(item_scale) + 2 if item_scale else 1)
-for col, (name, scale) in zip(cost_cols, item_scale.items()):
-    col.markdown(f"**{name}:** ${COST_FUNCTIONS[name](scale):.2f}")
+st.markdown("## 🧾 Finances")
 if item_scale:
-    cost_cols[-2].markdown(f"**Misc (gas, packaging, utilities):** ${total_cost * 0.50:.2f}")
-    cost_cols[-1].markdown(f"**Total Cost Overall:** ${total_cost * 1.50:.2f}")
+    st.markdown("**Expected Cost to Make**")
+    cost_cols = st.columns(len(item_scale) + 2)
+    for col, (name, scale) in zip(cost_cols, item_scale.items()):
+        col.metric(name, f"${COST_FUNCTIONS[name](scale):.2f}")
+    cost_cols[-2].metric("Misc (gas, packaging, utilities)", f"${total_cost * 0.50:.2f}")
+    cost_cols[-1].metric("Total Cost Overall", f"${total_cost * 1.50:.2f}")
 
-st.markdown("### Expected Profit")
-total_revenue = sum(item_revenue.values())
-total_profit = total_revenue - total_cost
-st.markdown(f"**Total Expected Profit:** ${total_profit:.2f}")
+    total_revenue = sum(item_revenue.values())
+    total_profit = total_revenue - total_cost
+    st.markdown("**Expected Profit**")
+    profit_cols = st.columns(3)
+    profit_cols[0].metric("Revenue", f"${total_revenue:.2f}")
+    profit_cols[1].metric("Cost", f"${total_cost:.2f}")
+    profit_cols[2].metric("Profit", f"${total_profit:.2f}")
+else:
+    st.info("Enter your preorders above to see cost and profit estimates!")
 st.markdown("---")
 
 # ============================================================
 # Save this week's order to the database
 # ============================================================
-st.markdown("## Save This Order")
+st.markdown("## 💾 Save This Order")
 col1, col2 = st.columns(2)
 with col1:
     week_start = st.date_input("Week Start (Monday orders opened)", value=date.today())
@@ -170,7 +266,7 @@ st.markdown("---")
 # ============================================================
 # Grocery List (same logic, driven by item_scale from the DB path)
 # ============================================================
-st.markdown("## Grocery List")
+st.markdown("## 🛒 Grocery List")
 
 if item_scale:
     shopping = {
@@ -227,7 +323,7 @@ else:
 # Order History — new section, only possible now that orders
 # are actually saved
 # ============================================================
-st.markdown("## Order History")
+st.markdown("## 📖 Order History")
 conn = get_connection()
 history = conn.execute("""
     SELECT o.week_start, i.name AS item_name, ps.label,
